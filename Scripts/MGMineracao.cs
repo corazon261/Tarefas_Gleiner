@@ -2,111 +2,86 @@ using UnityEngine;
 using System.Collections.Generic;
 using TMPro;
 
-/// <summary>
-/// Gerenciador central do minigame de mineração.
-/// Cronômetro, spawn de itens, pontuação e integração com upgrades da loja.
-/// </summary>
 public class MGMineracao : MonoBehaviour
 {
     public static MGMineracao instance;
 
-    // -------------------------------------------------------
-    // REFERÊNCIAS
-    // -------------------------------------------------------
     [Header("Conexões Obrigatórias")]
     public DailyCooldown meuCooldownEspecifico;
     public RectTransform areaDeSpawn;
-    public GameObject prefabItem;           // Um único prefab com o componente ItemMineracao
+    public GameObject prefabItem;
     public GanchoMineracao gancho;
 
     [Header("UI")]
     public TextMeshProUGUI textoTempo;
     public TextMeshProUGUI textoOuroAtual;
 
-    // -------------------------------------------------------
-    // CONFIGURAÇÕES BASE
-    // -------------------------------------------------------
     [Header("Configurações Base")]
     public int quantidadeItensBase = 15;
-    [Tooltip("Tempo base do minigame em segundos (antes de upgrades).")]
     public float tempoBase = 15f;
 
     [Header("Configuração da Força (Loja)")]
-    [Tooltip("Insira o peso de uma pedra PEQUENA. O upgrade de Força desconta esse valor a cada nível comprado.")]
-    public float pesoItemPequeno = 100f; // Ajuste para bater com o peso da sua pedra P
+    public float pesoItemPequeno = 100f;
 
-    // -------------------------------------------------------
-    // ESTADO INTERNO
-    // -------------------------------------------------------
     [HideInInspector] public List<ItemMineracao> itensNaTela = new List<ItemMineracao>();
 
     private float tempoRestante;
     private int ouroGanhoNestaPartida;
     private bool jogoRolando = false;
 
-    // -------------------------------------------------------
-    // PROPORÇÃO OURO (controlada pelo upgrade Ouro)
-    // Nível 0 → 20% | 1 → 40% | 2 → 60% | 3 → 80%
-    // -------------------------------------------------------
     private static readonly float[] ProporçaoOuro = { 0.20f, 0.40f, 0.60f, 0.80f };
 
-    // -------------------------------------------------------
-    // ALCANCE MÁXIMO (controlado pelo upgrade Distância)
-    // O valor real é lido pelo Gancho via ObterAlcanceMaximo()
-    // -------------------------------------------------------
-    [Header("Alcance Base e Máximo")]
-    public float alcanceBase = 700f;
-    public float alcanceNivel1 = 900f;
-    public float alcanceNivel2 = 1100f;
-    [Tooltip("Nível 3: vai até o limite inferior da área de spawn.")]
-    public float alcanceNivel3 = 1400f;
+    [Header("Alcance Base e Máximo (Unidades)")]
+    public float alcanceBase = 600f;
+    public float alcanceNivel1 = 800f;
+    public float alcanceNivel2 = 1000f;
+    [Tooltip("Nível 3: Valor gigante. Só vai parar quando bater na borda da tela!")]
+    public float alcanceNivel3 = 5000f;
 
-    // -------------------------------------------------------
-    // UNITY
-    // -------------------------------------------------------
     private void Awake()
     {
         if (instance != null && instance != this) { Destroy(gameObject); return; }
         instance = this;
     }
 
-    private void OnEnable()
-    {
-        IniciarMinigame();
-    }
+    private void OnEnable() => IniciarMinigame();
 
+    // Quando o objeto é desativado, ele limpa a tela automaticamente.
     private void OnDisable()
     {
         jogoRolando = false;
+        LimparTela();
     }
 
-    // -------------------------------------------------------
-    // INÍCIO PÚBLICO (vincule ao botão que inicia o minigame)
-    // -------------------------------------------------------
-    public void IniciarMinigame()
+    // Função centralizada de faxina (Limpa itens e reseta o gancho)
+    private void LimparTela()
     {
         foreach (var item in itensNaTela)
+        {
             if (item != null) Destroy(item.gameObject);
+        }
         itensNaTela.Clear();
+
+        if (gancho != null) gancho.ResetarGancho();
+    }
+
+    public void IniciarMinigame()
+    {
+        LimparTela();
 
         ouroGanhoNestaPartida = 0;
 
-        // UPGRADE 1: TEMPO (+2s por nível)[cite: 5]
         int nivelTempo = PlayerPrefs.GetInt("UpMin_Tempo", 0);
         tempoRestante = tempoBase + (nivelTempo * 2f);
 
         jogoRolando = true;
 
         if (meuCooldownEspecifico != null) meuCooldownEspecifico.GastarTentativa();
-        if (gancho != null) gancho.ResetarGancho();
 
         AtualizarTextos();
         SpawnarItens();
     }
 
-    // -------------------------------------------------------
-    // UPDATE
-    // -------------------------------------------------------
     private void Update()
     {
         if (!jogoRolando) return;
@@ -122,14 +97,10 @@ public class MGMineracao : MonoBehaviour
         }
     }
 
-    // -------------------------------------------------------
-    // SPAWN DE ITENS
-    // -------------------------------------------------------
     private void SpawnarItens()
     {
         if (areaDeSpawn == null || prefabItem == null) return;
 
-        // UPGRADE 4: OURO (Aumenta a % de spawnar ouro)[cite: 5]
         int nivelOuro = Mathf.Clamp(PlayerPrefs.GetInt("UpMin_Ouro", 0), 0, 3);
         float propOuro = ProporçaoOuro[nivelOuro];
 
@@ -187,16 +158,10 @@ public class MGMineracao : MonoBehaviour
         return new Vector2(Random.Range(minX, maxX), Random.Range(minY, maxY));
     }
 
-    // -------------------------------------------------------
-    // PONTUAÇÃO & UPGRADES FINAIS
-    // -------------------------------------------------------
-
-    /// <summary>Chamado pelo GanchoMineracao ao entregar um item coletado.</summary>
     public void AdicionarPontos(int valorBase)
     {
         if (!jogoRolando || valorBase <= 0) return;
 
-        // UPGRADE 5: VALOR (+1$ em todos os tamanhos a cada nível)[cite: 5]
         int nivelValor = Mathf.Clamp(PlayerPrefs.GetInt("UpMin_Valor", 0), 0, 3);
         int valorAjustado = valorBase + nivelValor;
 
@@ -204,19 +169,13 @@ public class MGMineracao : MonoBehaviour
         AtualizarTextos();
     }
 
-    // UPGRADE 3: FORÇA (Reduz o peso do item na hora de subir)[cite: 5]
     public float ObterPesoAjustado(float pesoOriginal)
     {
         int nivelForca = Mathf.Clamp(PlayerPrefs.GetInt("UpMin_Forca", 0), 0, 3);
-
-        // Cada nível "perdoa" o equivalente ao peso de um item pequeno, zerando a lentidão[cite: 5].
         float pesoAjustado = pesoOriginal - (pesoItemPequeno * nivelForca);
-
-        // Garante que não fique negativo (no mínimo a velocidade normal do gancho vazio)[cite: 5].
         return Mathf.Max(0f, pesoAjustado);
     }
 
-    // UPGRADE 2: DISTÂNCIA (Vai mais fundo)[cite: 5]
     public float ObterAlcanceMaximo()
     {
         int nivelDist = Mathf.Clamp(PlayerPrefs.GetInt("UpMin_Distancia", 0), 0, 3);
@@ -229,9 +188,6 @@ public class MGMineracao : MonoBehaviour
         }
     }
 
-    // -------------------------------------------------------
-    // FINALIZAR E UI
-    // -------------------------------------------------------
     private void FinalizarMinigame()
     {
         if (ouroGanhoNestaPartida > 0 && EconomyManager.Instance != null)
@@ -247,8 +203,7 @@ public class MGMineracao : MonoBehaviour
     public void AbortarMinigame()
     {
         jogoRolando = false;
-        foreach (var item in itensNaTela) if (item != null) Destroy(item.gameObject);
-        itensNaTela.Clear();
+        LimparTela();
 
         if (meuCooldownEspecifico != null) meuCooldownEspecifico.DevolverTentativa();
         if (NavigationManager.instance != null) NavigationManager.instance.WinMinigameMin();
